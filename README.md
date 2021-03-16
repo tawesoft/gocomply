@@ -3,12 +3,26 @@
 # gocomply <sup>beta</sup>
 
 Gocomply helps you save time licensing open source third-party Golang source
-code by fetching license information for all direct and dependencies.
+code by fetching license information for all direct and indirect dependencies.
 
 gocomply scans the Go module in the current directory for all direct and
-indirect dependencies (or the list of Go modules passed as command line
-arguments), and attempts to download and write all of their license files to
-stdout. Progress or warnings may be written to stderr.
+indirect dependencies, and attempts to download and write all of their license
+files to stdout. Progress or warnings may be written to stderr.
+
+## Usage
+
+Install
+
+```
+$ go install tawesoft.co.uk/gopkg/gocomply@latest
+```
+
+Get license information from the directory of some Go module
+
+```
+$ cd path/to/some/module
+$ gocomply > 3rd-party-licenses.txt
+```
 
 ## Important caveats
 
@@ -30,6 +44,18 @@ Because `git archive` isn't widely supported (shame!) the method of
 obtaining a single license file from a git repo is something that must be
 hard-coded for each provider. The provider you use might be missing from
 this hard-coded list - if so, open an issue.
+
+The `gocomply` program also operates in a different mode where it accepts a
+list of modules to check as command-line arguments. Subtly, it is assumed that
+this is a complete list of modules and dependencies - the dependencies of
+modules provided on the command-line are NOT checked. This mode is intended for
+users who parse the output of `go list -m all` themselves.
+
+## Troubleshooting
+
+### `panic: error: go list error: exit status 1`
+
+The current directory is not a Go module.
 
 ## Feedback
 
