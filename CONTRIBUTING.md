@@ -14,8 +14,8 @@ under the existing authors in COPYING.txt giving yourself attribution! If
 you don't, it's assumed you are happy for your contribution to fall under
 the existing license and for the git history to serve as credit. Credit can 
 be added to COPYING.txt after-the-fact but won't be legally binding on earlier
-commits. Email addresses in COPYING.txt may be removed if domains expire and 
-are not required.
+commits. Email addresses in COPYING.txt may be removed if domains expire - and
+you don't have to give one if you don't want to.
 
 Coding Standards
 ----------------
