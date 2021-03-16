@@ -2,25 +2,33 @@
 
 # gocomply <sup>beta</sup>
 
-Gocomply helps you save time licensing open source third-party Golang source
-code by fetching license information for all direct and indirect dependencies.
+Give open source Golang developers the credit they deserve, follow your legal
+obligations, and save time with `gocomply`.
 
-gocomply scans the Go module in the current directory for all direct and
-indirect dependencies, and attempts to download and write all of their license
-files to stdout. Progress or warnings may be written to stderr.
+This tiny little 300-line program scans the Go module in the current directory
+for all direct and indirect dependencies, and attempts to download and write
+all of their license files to stdout. Progress or warnings are written to
+stderr.
 
-## Usage
+## Use
 
-Install
+Install gocomply (you only need to do this once)
 
 ```
 $ go install tawesoft.co.uk/gopkg/gocomply@latest
 ```
 
-Get license information from the directory of some Go module
+Then, go (pun not intended) to the directory of some Go module
 
 ```
 $ cd path/to/some/module
+```
+
+Then just run `gocomply`. You probably want to redirect its output to a file,
+like so. This will overwrite that file each time. You'll see some progress
+on the terminal.
+
+```
 $ gocomply > 3rd-party-licenses.txt
 ```
 
