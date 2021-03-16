@@ -57,276 +57,295 @@
 package main
 
 import (
-    "bytes"
-    "encoding/base64"
-    "fmt"
-    "io"
-    "net/http"
-    "os"
-    "os/exec"
-    "regexp"
-    "strings"
-    "time"
+	"bytes"
+	"encoding/base64"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"regexp"
+	"strings"
+	"time"
 )
 
 var divider = strings.Repeat("-", 80)
+
 const httpTimeout = 10 * time.Second
 
 // licensesFiles are checked in this order
 var licenseFiles = []string{
-    "NOTICE", // apache
-    "LICENSE",
-    "LICENSE.txt",
-    "LICENSE.md",
-    "COPYING",
-    "COPYING.txt",
-    "COPYING.md",
+	"NOTICE", // apache
+	"LICENSE",
+	"LICENSE.txt",
+	"LICENSE.md",
+	"COPYING",
+	"COPYING.txt",
+	"COPYING.md",
 }
 
 func httpGet(url string) (string, error) {
-    out := &bytes.Buffer{}
+	out := &bytes.Buffer{}
 
-    client := http.Client{
-        Timeout: httpTimeout,
-    }
+	client := http.Client{
+		Timeout: httpTimeout,
+	}
 
-    resp, err := client.Get(url)
-    if err != nil { return "", err }
-    defer resp.Body.Close()
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
 
-    if resp.StatusCode != 200 {
-        return "", fmt.Errorf("http status code %d when downloading %q", resp.StatusCode, url)
-    }
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("http status code %d when downloading %q", resp.StatusCode, url)
+	}
 
-    _, err = io.Copy(out, resp.Body)
-    if err != nil { return "", err }
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		return "", err
+	}
 
-    return out.String(), nil
+	return out.String(), nil
 }
 
 type GoImport struct {
-    ImportPrefix string
-    Vcs          string
-    RepoRoot     string
+	ImportPrefix string
+	Vcs          string
+	RepoRoot     string
 }
 
 type GoSource struct {
-    ImportPrefix string
-    Home         string
-    Directory    string
-    File         string
+	ImportPrefix string
+	Home         string
+	Directory    string
+	File         string
 }
 
 var regexpGoImport = regexp.MustCompile(`(?i)<\s*meta\s*name\s*=\s*"go-import"\s*content\s*=\s*"(?P<import_prefix>\S+)\s+(?P<vcs>\S+)\s+(?P<repo_root>\S+)"\s*/?>`)
+
 func parseGoImport(data string) (GoImport, bool) {
-    r := regexpGoImport
+	r := regexpGoImport
 
-    if !r.MatchString(data) {
-        return GoImport{}, false
-    }
+	if !r.MatchString(data) {
+		return GoImport{}, false
+	}
 
-    matches := r.FindStringSubmatch(data)
-    return GoImport{
-        ImportPrefix: matches[r.SubexpIndex("import_prefix")],
-        Vcs:          matches[r.SubexpIndex("vcs")],
-        RepoRoot:     matches[r.SubexpIndex("repo_root")],
-    }, true
+	matches := r.FindStringSubmatch(data)
+	return GoImport{
+		ImportPrefix: matches[r.SubexpIndex("import_prefix")],
+		Vcs:          matches[r.SubexpIndex("vcs")],
+		RepoRoot:     matches[r.SubexpIndex("repo_root")],
+	}, true
 }
 
 var regexpGoSource = regexp.MustCompile(`(?i)<\s*meta\s*name\s*="go-source"\s*content\s*=\s*"(?P<import_prefix>\S+) (?P<home>\S+) (?P<directory>\S+) (?P<file>\S+)"\s*/?>`)
+
 func parseGoSource(data string) (GoSource, bool) {
-    r := regexpGoSource
+	r := regexpGoSource
 
-    if !r.MatchString(data) {
-        return GoSource{}, false
-    }
+	if !r.MatchString(data) {
+		return GoSource{}, false
+	}
 
-    matches := r.FindStringSubmatch(data)
-    return GoSource{
-        ImportPrefix: matches[r.SubexpIndex("import_prefix")],
-        Home:         matches[r.SubexpIndex("home")],
-        Directory:    matches[r.SubexpIndex("directory")],
-        File:         matches[r.SubexpIndex("file")],
-    }, true
+	matches := r.FindStringSubmatch(data)
+	return GoSource{
+		ImportPrefix: matches[r.SubexpIndex("import_prefix")],
+		Home:         matches[r.SubexpIndex("home")],
+		Directory:    matches[r.SubexpIndex("directory")],
+		File:         matches[r.SubexpIndex("file")],
+	}, true
 }
 
 func listModules() ([]string, error) {
-    stdout, err := exec.Command("go", "list", "-m", "all").Output()
-    if err != nil {
-        return nil, fmt.Errorf("go list error: %+v", err)
-    }
+	stdout, err := exec.Command("go", "list", "-m", "all").Output()
+	if err != nil {
+		return nil, fmt.Errorf("go list error: %+v", err)
+	}
 
-    stdout = bytes.TrimSpace(stdout)
-    lines := bytes.Split(stdout, []byte{'\n',})
-    if len(lines) < 1 {
-        return nil, fmt.Errorf("empty go list output")
-    }
+	stdout = bytes.TrimSpace(stdout)
+	lines := bytes.Split(stdout, []byte{'\n'})
+	if len(lines) < 1 {
+		return nil, fmt.Errorf("empty go list output")
+	}
 
-    // discard first line
-    lines = lines[1:]
+	// discard first line
+	lines = lines[1:]
 
-    names := make([]string, 0)
-    for _, line := range lines {
-        // e.g. golang.org/x/text v0.3.3
-        words := bytes.SplitN(line, []byte{' ',}, 2)
-        if len(words) != 2 {
-            return nil, fmt.Errorf("invalid go list output format (line %q)", line)
-        }
-        names = append(names, string(words[0]))
-    }
+	names := make([]string, 0)
+	for _, line := range lines {
+		// e.g. golang.org/x/text v0.3.3
+		words := bytes.SplitN(line, []byte{' '}, 2)
+		if len(words) != 2 {
+			return nil, fmt.Errorf("invalid go list output format (line %q)", line)
+		}
+		names = append(names, string(words[0]))
+	}
 
-    return names, nil
+	return names, nil
 }
 
 func stringDecoderIdentity(str string) (string, error) {
-    return str, nil
+	return str, nil
 }
 
 func stringDecoderBase64(str string) (string, error) {
-    bytes, err := base64.StdEncoding.DecodeString(str)
-    if err != nil { return "", err }
-    return string(bytes), nil
+	bytes, err := base64.StdEncoding.DecodeString(str)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
 }
 
 func resolveFileURL(gi GoImport, gs GoSource, file string) ([]string, func(string) (string, error), error) {
-    vcs := gi.Vcs
-    repoRoot := gi.RepoRoot
+	vcs := gi.Vcs
+	repoRoot := gi.RepoRoot
 
-    if vcs != "git" {
-        return nil, nil, fmt.Errorf("vcs %q not implemented", vcs)
-    }
+	if vcs != "git" {
+		return nil, nil, fmt.Errorf("vcs %q not implemented", vcs)
+	}
 
-    if strings.HasPrefix(repoRoot, "https://go.googlesource.com/") {
-        return []string{fmt.Sprintf("%s/+/refs/heads/master/%s?format=text", repoRoot, file),},
-            stringDecoderBase64, nil
-    }
+	if strings.HasPrefix(repoRoot, "https://go.googlesource.com/") {
+		return []string{fmt.Sprintf("%s/+/refs/heads/master/%s?format=text", repoRoot, file)},
+			stringDecoderBase64, nil
+	}
 
-    if strings.HasPrefix(repoRoot, "https://gopkg.in/") {
-        // Find correct branch including minor version.
-        // The go-source meta tag for gopkg.in is the simplest place where
-        // this info is exposed over HTTP, to avoid speaking git protocol.
+	if strings.HasPrefix(repoRoot, "https://gopkg.in/") {
+		// Find correct branch including minor version.
+		// The go-source meta tag for gopkg.in is the simplest place where
+		// this info is exposed over HTTP, to avoid speaking git protocol.
 
-        // e.g. gs.Directory
-        // https://github.com/natefinch/lumberjack/tree/v2.1{/dir}
+		// e.g. gs.Directory
+		// https://github.com/natefinch/lumberjack/tree/v2.1{/dir}
 
-        user, repo, branch, ok := func() (user string, repo string, branch string, ok bool) {
-            dir := strings.TrimPrefix(gs.Directory, "https://github.com/")
+		user, repo, branch, ok := func() (user string, repo string, branch string, ok bool) {
+			dir := strings.TrimPrefix(gs.Directory, "https://github.com/")
 
-            parts := strings.SplitN(dir, "/", 4)
-            if len(parts) != 4 { ok = false;  return }
-            user = parts[0]
-            repo = parts[1]
-            rest := parts[3]
-            idx := strings.IndexByte(rest, '{')
-            if idx < 0 { ok = false; return }
+			parts := strings.SplitN(dir, "/", 4)
+			if len(parts) != 4 {
+				ok = false
+				return
+			}
+			user = parts[0]
+			repo = parts[1]
+			rest := parts[3]
+			idx := strings.IndexByte(rest, '{')
+			if idx < 0 {
+				ok = false
+				return
+			}
 
-            branch = rest[0:idx]
+			branch = rest[0:idx]
 
-            ok = true
-            return
-        }()
-        if !ok {
-            return nil, nil, fmt.Errorf("gopkg.in parse error")
-        }
+			ok = true
+			return
+		}()
+		if !ok {
+			return nil, nil, fmt.Errorf("gopkg.in parse error")
+		}
 
-        return []string{
-            fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s", user, repo, branch, file),
-        },
-        stringDecoderIdentity, nil
-    }
+		return []string{
+				fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s", user, repo, branch, file),
+			},
+			stringDecoderIdentity, nil
+	}
 
-    if strings.HasPrefix(repoRoot, "https://github.com/") {
-        dir := strings.TrimPrefix(repoRoot, "https://github.com/")
-        dir = strings.TrimSuffix(dir, ".git")
+	if strings.HasPrefix(repoRoot, "https://github.com/") {
+		dir := strings.TrimPrefix(repoRoot, "https://github.com/")
+		dir = strings.TrimSuffix(dir, ".git")
 
-        return []string{
-            fmt.Sprintf("https://raw.githubusercontent.com/%s/main/%s", dir, file),
-            fmt.Sprintf("https://raw.githubusercontent.com/%s/master/%s", dir, file), // historical
-        },
-        stringDecoderIdentity, nil
-    }
+		return []string{
+				fmt.Sprintf("https://raw.githubusercontent.com/%s/main/%s", dir, file),
+				fmt.Sprintf("https://raw.githubusercontent.com/%s/master/%s", dir, file), // historical
+			},
+			stringDecoderIdentity, nil
+	}
 
-    return nil, nil, fmt.Errorf("repo %q not supported (please open an issue)", repoRoot)
+	return nil, nil, fmt.Errorf("repo %q not supported (please open an issue)", repoRoot)
 }
 
 func getLicense(module string, gi GoImport, gs GoSource) (string, error) {
-    for _, license := range licenseFiles {
-        // be a good citizen
-        time.Sleep(1 * time.Second)
+	for _, license := range licenseFiles {
+		// be a good citizen
+		time.Sleep(1 * time.Second)
 
-        licenseUrls, decoder, err := resolveFileURL(gi, gs, license)
-        if err != nil {
-            return "", fmt.Errorf("no known license URL for module %q: %v", module, err)
-        }
+		licenseUrls, decoder, err := resolveFileURL(gi, gs, license)
+		if err != nil {
+			return "", fmt.Errorf("no known license URL for module %q: %v", module, err)
+		}
 
-        for _, licenseUrl := range licenseUrls {
-            data, err := httpGet(licenseUrl)
-            if err != nil { continue }
+		for _, licenseUrl := range licenseUrls {
+			data, err := httpGet(licenseUrl)
+			if err != nil {
+				continue
+			}
 
-            data, err = decoder(data)
-            if err != nil {
-                return "", fmt.Errorf("error decoding %q: %v", licenseUrl, err)
-            }
+			data, err = decoder(data)
+			if err != nil {
+				return "", fmt.Errorf("error decoding %q: %v", licenseUrl, err)
+			}
 
-            return strings.TrimSpace(data), nil
-        }
-    }
+			return strings.TrimSpace(data), nil
+		}
+	}
 
-    return "", fmt.Errorf("no license found for module %q", module)
+	return "", fmt.Errorf("no license found for module %q", module)
 }
 
 func main() {
-    err := func () error {
-        var modules []string
+	err := func() error {
+		var modules []string
 
-        if len(os.Args) > 1 {
-            modules = os.Args[1:]
-        } else {
-            var err error
-            modules, err = listModules()
-            if err != nil { return err }
-        }
+		if len(os.Args) > 1 {
+			modules = os.Args[1:]
+		} else {
+			var err error
+			modules, err = listModules()
+			if err != nil {
+				return err
+			}
+		}
 
-        for _, module := range modules {
-            fmt.Fprintf(os.Stderr, "> %s\n", module)
+		for _, module := range modules {
+			fmt.Fprintf(os.Stderr, "> %s\n", module)
 
-            // future-proof - might take arguments in future
-            if strings.HasPrefix(module, "-") {
-                return fmt.Errorf("unrecognised argument %q", module)
-            }
+			// future-proof - might take arguments in future
+			if strings.HasPrefix(module, "-") {
+				return fmt.Errorf("unrecognised argument %q", module)
+			}
 
-            // "golang.org is a known non-module"
-            // if strings.HasPrefix(module, "golang.org") {
-            //    continue
-            // }
+			// "golang.org is a known non-module"
+			// if strings.HasPrefix(module, "golang.org") {
+			//    continue
+			// }
 
-            data, err := httpGet(fmt.Sprintf("https://%s?go-get=1", module))
-            if err != nil {
-                fmt.Fprintf(os.Stderr, "error looking up module %q: %v\n", module, err)
-                continue
-            }
+			data, err := httpGet(fmt.Sprintf("https://%s?go-get=1", module))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error looking up module %q: %v\n", module, err)
+				continue
+			}
 
-            gi, ok := parseGoImport(data)
-            if !ok {
-                fmt.Fprintf(os.Stderr, "unrecognised import %q (no go-import meta tags)\n", module)
-                continue
-            }
+			gi, ok := parseGoImport(data)
+			if !ok {
+				fmt.Fprintf(os.Stderr, "unrecognised import %q (no go-import meta tags)\n", module)
+				continue
+			}
 
-            gs, _ := parseGoSource(data)
+			gs, _ := parseGoSource(data)
 
-            license, err := getLicense(module, gi, gs)
-            if err != nil {
-                fmt.Fprintf(os.Stderr, "unable to find a license for module %q: %v\n", module, err)
-                continue
-            }
+			license, err := getLicense(module, gi, gs)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "unable to find a license for module %q: %v\n", module, err)
+				continue
+			}
 
-            fmt.Printf("%s\n\n%s\n\n%s\n\n", gi.RepoRoot, license, divider)
-        }
+			fmt.Printf("%s\n\n%s\n\n%s\n\n", gi.RepoRoot, license, divider)
+		}
 
-        return nil
-    }()
+		return nil
+	}()
 
-    if err != nil {
-        panic(fmt.Sprintf("error: %v", err))
-    }
+	if err != nil {
+		panic(fmt.Sprintf("error: %v", err))
+	}
 }
