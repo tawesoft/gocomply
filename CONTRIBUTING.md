@@ -3,8 +3,7 @@ Contributing to gocomply
 
 [Issues](https://github.com/tawesoft/gocomply/issues),
 [pull requests](https://github.com/tawesoft/gocomply/pulls) and
-[comments](mailto:ben@tawesoft.co.uk)are 
-very welcome.
+[comments](mailto:ben@tawesoft.co.uk) are very welcome.
 
 Code contributions
 ------------------
