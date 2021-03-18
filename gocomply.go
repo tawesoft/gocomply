@@ -353,7 +353,7 @@ func main() {
 				continue
 			}
 
-			fmt.Printf("%s\n\n%s\n\n%s\n\n", gi.RepoRoot, license, divider)
+			fmt.Printf("%s\n\n%s\n\n%s\n\n", module, license, divider)
 		}
 
 		return nil
