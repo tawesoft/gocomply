@@ -275,6 +275,16 @@ func resolveFileURL(gi GoImport, gs GoSource, file string) ([]string, func(strin
 			stringDecoderIdentity, nil
 	}
 
+	if strings.HasPrefix(repoRoot, "https://gitlab.com/") {
+		dir := strings.TrimSuffix(repoRoot, ".git")
+
+		return []string{
+				fmt.Sprintf("%s/-/raw/main/%s", dir, file),
+				fmt.Sprintf("%s/-/raw/master/%s", dir, file), // historical
+			},
+			stringDecoderIdentity, nil
+	}
+
 	return nil, nil, fmt.Errorf("repo %q not supported (please open an issue)", repoRoot)
 }
 
