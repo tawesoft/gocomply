@@ -122,21 +122,29 @@ type GoSource struct {
 	File         string
 }
 
-var regexpGoImport = regexp.MustCompile(`(?i)<\s*meta\s*name\s*=\s*"go-import"\s*content\s*=\s*"(?P<import_prefix>\S+)\s+(?P<vcs>\S+)\s+(?P<repo_root>\S+)"\s*/?>`)
+// parsing HTML with regex is wrong, but this works well enough to do it anyway
+var regexpGoImport = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)<\s*meta\s*name\s*=\s*"go-import"\s*content\s*=\s*"(?P<import_prefix>\S+)\s+(?P<vcs>\S+)\s+(?P<repo_root>\S+)"\s*/?>`),
+	// source hut has the arguments the other way round
+	regexp.MustCompile(`(?i)<\s*meta\s*content\s*=\s*"(?P<import_prefix>\S+)\s+(?P<vcs>\S+)\s+(?P<repo_root>\S+)"\s*name\s*=\s*"go-import"\s*/?>`),
+}
 
 func parseGoImport(data string) (GoImport, bool) {
-	r := regexpGoImport
+	for _, r := range regexpGoImport {
 
-	if !r.MatchString(data) {
-		return GoImport{}, false
+		if !r.MatchString(data) {
+			continue
+		}
+
+		matches := r.FindStringSubmatch(data)
+		return GoImport{
+			ImportPrefix: matches[r.SubexpIndex("import_prefix")],
+			Vcs:          matches[r.SubexpIndex("vcs")],
+			RepoRoot:     matches[r.SubexpIndex("repo_root")],
+		}, true
 	}
 
-	matches := r.FindStringSubmatch(data)
-	return GoImport{
-		ImportPrefix: matches[r.SubexpIndex("import_prefix")],
-		Vcs:          matches[r.SubexpIndex("vcs")],
-		RepoRoot:     matches[r.SubexpIndex("repo_root")],
-	}, true
+	return GoImport{}, false
 }
 
 var regexpGoSource = regexp.MustCompile(`(?i)<\s*meta\s*name\s*="go-source"\s*content\s*=\s*"(?P<import_prefix>\S+) (?P<home>\S+) (?P<directory>\S+) (?P<file>\S+)"\s*/?>`)
@@ -208,6 +216,12 @@ func resolveFileURL(gi GoImport, gs GoSource, file string) ([]string, func(strin
 	if strings.HasPrefix(repoRoot, "https://go.googlesource.com/") {
 		return []string{fmt.Sprintf("%s/+/refs/heads/master/%s?format=text", repoRoot, file)},
 			stringDecoderBase64, nil
+	}
+
+	if strings.HasPrefix(repoRoot, "https://git.sr.ht/") {
+		dir := strings.TrimSuffix(repoRoot, ".git")
+		return []string{fmt.Sprintf("%s/blob/master/%s", dir, file)},
+			stringDecoderIdentity, nil
 	}
 
 	if strings.HasPrefix(repoRoot, "https://gopkg.in/") {
