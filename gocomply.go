@@ -79,6 +79,9 @@ var licenseFiles = []string{
 	"LICENSE",
 	"LICENSE.txt",
 	"LICENSE.md",
+	"License",
+	"License.txt",
+	"LICENCE",
 	"COPYING",
 	"COPYING.txt",
 	"COPYING.md",
@@ -345,8 +348,21 @@ func main() {
 
 			data, err := httpGet(fmt.Sprintf("https://%s?go-get=1", module))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "error looking up module %q: %v\n", module, err)
-				continue
+				// Attempt module root, for example:
+				// https://github.com/go-gl/glfw/v3.3/glfw -> https://github.com/go-gl/glfw
+				// https://github.com/russross/blackfriday/v2 -> https://github.com/russross/blackfriday
+				parts := strings.Split(module, "/")
+				if len(parts) > 3 {
+					moduleroot := strings.Join(parts[:3], "/")
+					data, err = httpGet(fmt.Sprintf("https://%s?go-get=1", moduleroot))
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "error looking up module %q: %v\n", module, err)
+						continue
+					}
+				} else {
+					fmt.Fprintf(os.Stderr, "error looking up module %q: %v\n", module, err)
+					continue
+				}
 			}
 
 			gi, ok := parseGoImport(data)
