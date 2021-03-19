@@ -378,6 +378,9 @@ func main() {
 			}
 		}
 
+		// the standard library
+		modules = append(modules, "github.com/golang/go")
+
 		for _, module := range modules {
 			fmt.Fprintf(os.Stderr, "> %s\n", module)
 

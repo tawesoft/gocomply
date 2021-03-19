@@ -57,6 +57,14 @@ this is a complete list of modules and dependencies - the dependencies of
 modules provided on the command-line are NOT checked. This mode is intended for
 users who parse the output of `go list -m all` themselves.
 
+Note that the generated `3rd-party-licenses.txt` only applies to any binary
+built from or including your source code. If you're just distributing your own 
+source code, you're probably not redistributing its source dependencies. The 
+programmer *using* your source code is obtaining the dependencies themselves
+with `go get`. Only the person ultimately creating binaries is the one
+who strictly needs to `gocomply`. Otherwise, don't put other people's licenses
+into your license.txt - keep them separate e.g. in `3rd-party-licenses.txt`.
+
 ## Troubleshooting
 
 ### `panic: error: go list error: exit status 1`
