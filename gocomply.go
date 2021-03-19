@@ -168,7 +168,7 @@ func parseGoSource(data string) (GoSource, bool) {
 func listModules() ([]string, error) {
 	stdout, err := exec.Command("go", "list", "-m", "all").Output()
 	if err != nil {
-		return nil, fmt.Errorf("go list error: %+v", err)
+		return nil, fmt.Errorf("go list error: %+v: %s", err, err.(*exec.ExitError).Stderr)
 	}
 
 	stdout = bytes.TrimSpace(stdout)
@@ -187,10 +187,58 @@ func listModules() ([]string, error) {
 		if len(words) != 2 {
 			return nil, fmt.Errorf("invalid go list output format (line %q)", line)
 		}
-		names = append(names, string(words[0]))
+		name := string(words[0])
+
+		required, err := isRequiredModule(name)
+		if err != nil { return nil, err }
+		if !required { continue }
+
+		names = append(names, name)
 	}
 
 	return names, nil
+}
+
+func isRequiredModule(name string) (bool, error) {
+	// "download is split into two parts: downloading the go.mod and
+	// downloading the actual code. If you have dependencies only needed for
+	// tests, then they will show up in your go.mod, and go get will download
+	// their go.mods, but it will not download their code."
+	//
+	// "This applies not just to test-only dependencies but also os-specific
+	// dependencies."
+	//
+	// -- https://github.com/golang/go/issues/26913#issuecomment-411976222
+	//
+	// "The -vendor flag causes why to exclude tests of dependencies.
+	//
+	// "If the package or module is not
+	//  referenced from the main module, the stanza will display a single
+	//  parenthesized note indicating that fact."
+
+	stdout, err := exec.Command("go", "mod", "why", "-m", "-vendor", name).Output()
+	if err != nil {
+		return false, fmt.Errorf("go why error: %+v: %s", err, err.(*exec.ExitError).Stderr)
+	}
+
+	lines := bytes.Split(stdout, []byte{'\n'})
+	if len(lines) < 2 {
+		return false, fmt.Errorf("unexpected go why output format")
+	}
+
+	// "# golang.org/x/text/encoding"
+	if !bytes.Equal(bytes.TrimSpace(lines[0]), []byte("# " + name)) {
+		return false, fmt.Errorf("unexpected go why output format")
+	}
+
+	// "(main module does not need package golang.org/x/text/encoding)"
+	line := bytes.TrimSpace(lines[1])
+	if (len(line) > 2) && line[0] == '(' && line[len(line)-1] == ')' {
+		return false, nil
+	}
+
+	// any other result means its used
+	return true, nil
 }
 
 func stringDecoderIdentity(str string) (string, error) {

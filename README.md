@@ -5,10 +5,10 @@
 Give open source Golang developers the credit they deserve, follow your legal
 obligations, and save time with `gocomply`.
 
-This tiny little 300-line program scans the Go module in the current directory
-for all direct and indirect dependencies, and attempts to download and write
-all of their license files to stdout. Progress or warnings are written to
-stderr.
+This tiny little 300ish-line program scans the Go module in the current
+directory for all direct and indirect dependencies, and attempts to download 
+and write all of their license files to stdout. Progress or warnings are 
+written to stderr.
 
 ## Use
 
@@ -34,9 +34,7 @@ $ gocomply > 3rd-party-licenses.txt
 
 ## Important caveats
 
-Licenses of indirect dependencies will be included, regardless of whether
-they end up being used by your project or in the resulting binary. You can
-and should review and trim the output as appropriate.
+TODO check different platform variants
 
 A human must manually check the output for compliance. Just because you have
 included the text of a license file, it does not mean you're allowed to use
