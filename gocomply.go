@@ -59,12 +59,14 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -82,6 +84,11 @@ var licenseFiles = []string{
 	"COPYING",
 	"COPYING.txt",
 	"COPYING.md",
+}
+
+type Target struct{
+	OS string
+	Arch string
 }
 
 func httpGet(url string) (string, error) {
@@ -165,41 +172,51 @@ func parseGoSource(data string) (GoSource, bool) {
 	}, true
 }
 
-func listModules() ([]string, error) {
-	stdout, err := exec.Command("go", "list", "-m", "all").Output()
-	if err != nil {
-		return nil, fmt.Errorf("go list error: %+v: %s", err, err.(*exec.ExitError).Stderr)
-	}
-
-	stdout = bytes.TrimSpace(stdout)
-	lines := bytes.Split(stdout, []byte{'\n'})
-	if len(lines) < 1 {
-		return nil, fmt.Errorf("empty go list output")
-	}
-
-	// discard first line
-	lines = lines[1:]
+func listModules(targets []Target) ([]string, error) {
 
 	names := make([]string, 0)
-	for _, line := range lines {
-		// e.g. golang.org/x/text v0.3.3
-		words := bytes.SplitN(line, []byte{' '}, 2)
-		if len(words) != 2 {
-			return nil, fmt.Errorf("invalid go list output format (line %q)", line)
+	seenNames := make(map[string]struct{})
+
+	for _, target := range targets {
+
+		stdout, err := exec.Command("go", "list", "-m", "all").Output()
+		if err != nil {
+			return nil, fmt.Errorf("go list error: %+v: %s", err, err.(*exec.ExitError).Stderr)
 		}
-		name := string(words[0])
 
-		required, err := isRequiredModule(name)
-		if err != nil { return nil, err }
-		if !required { continue }
+		stdout = bytes.TrimSpace(stdout)
+		lines := bytes.Split(stdout, []byte{'\n'})
+		if len(lines) < 1 {
+			return nil, fmt.Errorf("empty go list output")
+		}
 
-		names = append(names, name)
+		// discard first line
+		lines = lines[1:]
+
+		for _, line := range lines {
+			// e.g. golang.org/x/text v0.3.3
+			words := bytes.SplitN(line, []byte{' '}, 2)
+			if len(words) != 2 {
+				return nil, fmt.Errorf("invalid go list output format (line %q)", line)
+			}
+			name := string(words[0])
+
+			required, err := isRequiredModule(name, target.OS, target.Arch)
+			if err != nil { return nil, err }
+			if !required { continue }
+
+			_, exists := seenNames[name]
+			if !exists {
+				seenNames[name] = struct{}{}
+				names = append(names, name)
+			}
+		}
 	}
 
 	return names, nil
 }
 
-func isRequiredModule(name string) (bool, error) {
+func isRequiredModule(name string, GoOS string, GoArch string) (bool, error) {
 	// "download is split into two parts: downloading the go.mod and
 	// downloading the actual code. If you have dependencies only needed for
 	// tests, then they will show up in your go.mod, and go get will download
@@ -216,7 +233,15 @@ func isRequiredModule(name string) (bool, error) {
 	//  referenced from the main module, the stanza will display a single
 	//  parenthesized note indicating that fact."
 
-	stdout, err := exec.Command("go", "mod", "why", "-m", "-vendor", name).Output()
+	cmd := exec.Command("go", "mod", "why", "-m", "-vendor", name)
+
+	cmd.Env = append(os.Environ(), "GOOS="+GoOS)
+
+	if GoArch != "" {
+		cmd.Env = append(os.Environ(), "GOARCH="+GoArch)
+	}
+
+	stdout, err := cmd.Output()
 	if err != nil {
 		return false, fmt.Errorf("go why error: %+v: %s", err, err.(*exec.ExitError).Stderr)
 	}
@@ -365,26 +390,43 @@ func getLicense(module string, gi GoImport, gs GoSource) (string, error) {
 }
 
 func main() {
-	err := func() error {
-		var modules []string
+	var targets []Target
 
-		if len(os.Args) > 1 {
-			modules = os.Args[1:]
-		} else {
-			var err error
-			modules, err = listModules()
-			if err != nil {
-				return err
+	if len(os.Args) == 1 {
+		targets = []Target{
+			{runtime.GOOS, runtime.GOARCH},
+		}
+	} else {
+		var ts string
+		flag.StringVar(&ts, "targets", runtime.GOOS + "/" + runtime.GOARCH,
+			"comma-separated list of GOOS or GOOS/GOARCH targets")
+		flag.Parse()
+
+		targets = make([]Target, 0)
+		for _, t := range strings.Split(ts, ",") {
+			t = strings.TrimSpace(t)
+			parts := strings.SplitN(t, "/", 2)
+			if len(parts) == 1 {
+				targets = append(targets, Target{
+					OS:   parts[0],
+					Arch: "",
+				})
+			} else {
+				targets = append(targets, Target{
+					OS:   parts[0],
+					Arch: parts[1],
+				})
 			}
 		}
+	}
+
+
+	err := func() error {
+		modules, err := listModules(targets)
+		if err != nil { return err }
 
 		for _, module := range modules {
 			fmt.Fprintf(os.Stderr, "> %s\n", module)
-
-			// future-proof - might take arguments in future
-			if strings.HasPrefix(module, "-") {
-				return fmt.Errorf("unrecognised argument %q", module)
-			}
 
 			// "golang.org is a known non-module"
 			// if strings.HasPrefix(module, "golang.org") {

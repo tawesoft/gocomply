@@ -39,10 +39,12 @@ TODO check different platform variants
 A human must manually check the output for compliance. Just because you have
 included the text of a license file, it does not mean you're allowed to use
 the code or that the license is open source. It does not mean that the
-author of the module that you depend on is using the license properly.
+author of the module that you depend on is using the license properly. It
+does not mean that there isn't a bug in gocomply. It does not mean that
+gocomply was completely accurate in downloading the correct license file.
 
-The tool only checks the currently published version of a license. You might
-be using an old version that comes under a different license.
+The tool only checks the currently published version of a license in most
+cases. You might be using an old version that comes under a different license.
 
 The tool doesn't yet support private repos.
 
