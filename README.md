@@ -49,9 +49,16 @@ grant the permission `repo Full control of private repositories`.
 
 You might already have done this if using private repos with Go.
 
+The .netrc file should be updated to contain a line like the following. Replace
+USERNAME and PERSONAL_ACCESS_TOKEN with your GitHub username and the generated
+personal access token.
+
 ```
 machine github.com login USERNAME password PERSONAL_ACCESS_TOKEN
-```
+``` 
+
+The .netrc file should have user-only read/write permissions (e.g.
+`$ chmod 0600 .netrc`)
 
 Gocomply looks for this at the default location of `$HOME/.netrc`, or at the 
 location specified by the NETRC environment variable.
