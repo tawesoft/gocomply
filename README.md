@@ -5,7 +5,7 @@
 Give open source Golang developers the credit they deserve, follow your legal
 obligations, and save time with `gocomply`.
 
-This tiny little 300ish-line program scans the Go module in the current
+This little 500ish-line program scans the Go module in the current
 directory for all direct and indirect dependencies, and attempts to download 
 and write all of their license files to stdout. Progress or warnings are 
 written to stderr.
@@ -32,6 +32,30 @@ on the terminal.
 $ gocomply > 3rd-party-licenses.txt
 ```
 
+## Authentication
+
+Gocomply can improve its accuracy, run faster, and access private 
+repositories if it's able to access the necessary APIs. For GitHub, this
+requires authentication to avoid being rate limited.
+
+### Get a personal access token
+
+Visit [github.com/settings/tokens](https://github.com/settings/tokens), click
+"Generate New Token". If you don't care about private repositories, grant 
+(only) the permission `public_repo Access public repositories`. Otherwise,
+grant the permission `repo Full control of private repositories`.
+
+### Update your .netrc file
+
+You might already have done this if using private repos with Go.
+
+```
+machine github.com login USERNAME password PERSONAL_ACCESS_TOKEN
+```
+
+Gocomply looks for this at the default location of `$HOME/.netrc`, or at the 
+location specified by the NETRC environment variable.
+
 ## Important caveats
 
 A human must manually check the output for compliance. Just because you have
@@ -43,8 +67,6 @@ gocomply was completely accurate in downloading the correct license file.
 
 The tool only checks the currently published version of a license. You might
 be using an old version that comes under a different license.
-
-The tool doesn't yet support private repos.
 
 Because `git archive` isn't widely supported (shame!) the method of
 obtaining a single license file from a git repo is something that must be

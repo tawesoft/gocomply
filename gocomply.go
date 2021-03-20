@@ -59,49 +59,109 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"os/user"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/jdxcode/netrc"
 )
 
 var divider = strings.Repeat("-", 80)
 
 const httpTimeout = 10 * time.Second
 
-// licensesFiles are checked in this order
-var licenseFiles = []string{
-	"NOTICE", // apache
+
+// httpLicenseFiles to check, in order. For GitHub repos we have a more
+// efficient way of detecting licenses. These are case sensitive if the remote
+// server is case sensitive. This should be as small a list as possible.
+var httpLicenseFiles = []string{
+	"NOTICE", // apache, must come first
 	"LICENSE",
 	"LICENSE.txt",
 	"LICENSE.md",
-	"License",
-	"License.txt",
-	"LICENCE",
 	"COPYING",
 	"COPYING.txt",
 	"COPYING.md",
 }
 
-func httpGet(url string) (string, error) {
+// repoLicensesFiles, in order of precedence for checking in a remote
+// repository. Unlike the httpLicenseFiles, we can check this case
+// insensitively.
+//
+// This sorting is informed by the go-license-detector dataset.zip:
+// `find | xargs -L1 -I{} basename "{}" | sort |  uniq -c > all.txt`
+// and https://pkg.go.dev/license-policy - but we want the actual copyright
+// notice and to exclude anything that's just a full copy of the GPL verbatim.
+//
+var repoLicenseFiles = []string{
+	"NOTICE", // apache, must come first
+	"NOTICE.txt", // apache, rarely
+	"LICENSE",
+	"LICENSE.txt",
+	"LICENSE.md",
+	"LICENSE.markdown",
+	"LICENSE.rst",
+	"LICENCE", // uncommon
+	"LICENCE.txt", // uncommon
+	"LICENCE.md", // uncommon
+	"LICENCE.markdown", // uncommon
+	"LICENCE.rst", // uncommon
+	"COPYING",
+	"COPYING.txt",
+	"COPYRIGHT",
+	"COPYRIGHT.txt",
+	"MIT-LICENSE",
+	"MIT-LICENSE.txt",
+	"MIT-LICENCE", // uncommon
+	"MIT-LICENCE.txt", // uncommon
+}
+
+type BasicAuth struct {
+	Username string
+	Token    string
+}
+var githubAuth *BasicAuth
+
+func (a BasicAuth) IsSet() bool {
+	return a.Username != "" && a.Token != ""
+}
+
+func httpGet(rsc string, auth *BasicAuth) (string, error) {
 	out := &bytes.Buffer{}
 
 	client := http.Client{
 		Timeout: httpTimeout,
 	}
 
-	resp, err := client.Get(url)
+	req, err := http.NewRequest("GET", rsc, nil)
+	if err != nil {
+		return "", err
+	}
+	if (auth != nil) && auth.IsSet() {
+		req.SetBasicAuth(
+			url.QueryEscape(auth.Username),
+			url.QueryEscape(auth.Token),
+		)
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("http status code %d when downloading %q", resp.StatusCode, url)
+		return "", fmt.Errorf("http status code %d when downloading %q", resp.StatusCode, rsc)
 	}
 
 	_, err = io.Copy(out, resp.Body)
@@ -340,7 +400,101 @@ func resolveFileURL(gi GoImport, gs GoSource, file string) ([]string, func(strin
 }
 
 func getLicense(module string, gi GoImport, gs GoSource) (string, error) {
-	for _, license := range licenseFiles {
+
+	// try API
+	if gi.Vcs == "git" && strings.HasPrefix(gi.RepoRoot, "https://github.com/") && githubAuth.IsSet() {
+		// TODO check rate limits
+
+		license, missing, err := func() (string, bool, error) {
+			// rate limit is 5000 hour once authenticated - as low as 50/hour when anonymous!
+			// TODO we could reduce this timeout when rate is high
+			time.Sleep(2 * 1230 * time.Millisecond)
+
+			// TODO if we refactor resolveFileURL to make it more general purpose
+			//   then this could work for gopkg.in too
+
+			// TODO make this a method on gi to stop repeating this
+			dir := strings.TrimPrefix(gi.RepoRoot, "https://github.com/")
+			dir = strings.TrimSuffix(dir, ".git")
+
+			data, err := httpGet(fmt.Sprintf("https://api.github.com/repos/%s/git/trees/HEAD", dir), githubAuth)
+			if err != nil {
+				return "", false, fmt.Errorf("trouble getting listing for %s: %v", gi.RepoRoot, err)
+			}
+
+			type APITree struct {
+				Path string
+				Type string // we want "blob"
+				Url  string
+			}
+
+			type APIResponse struct {
+				Tree []APITree
+			}
+
+			type APIBlob struct {
+				Content string
+				Encoding string
+			}
+
+			var response APIResponse
+			err = json.Unmarshal([]byte(data), &response)
+			if err != nil {
+				return "", false, fmt.Errorf("json decode error: %v", err)
+			}
+
+			for _, t := range response.Tree {
+				if t.Type != "blob" { continue }
+				for _, name := range repoLicenseFiles {
+					if !strings.EqualFold(t.Path, name) { continue }
+
+					data, err := httpGet(t.Url, githubAuth)
+					if err != nil {
+						return "", false, fmt.Errorf("trouble getting blob for %s: %v", gi.RepoRoot, err)
+					}
+
+					var blob APIBlob
+					err = json.Unmarshal([]byte(data), &blob)
+					if err != nil {
+						return "", false, fmt.Errorf("json decode error: %v", err)
+					}
+
+					if strings.EqualFold(blob.Encoding, "utf-8") {
+						return strings.TrimSpace(blob.Content), false, nil
+					} else if strings.EqualFold(blob.Encoding, "base64") {
+						raw, err := base64.StdEncoding.DecodeString(blob.Content)
+						if err != nil {
+							return "", false, fmt.Errorf("base64 decode error: %v", err)
+						}
+						return strings.TrimSpace(string(raw)), false, nil
+					} else {
+						return "", false, fmt.Errorf("unknown encoding type %q", blob.Encoding)
+					}
+				}
+			}
+
+			return "", true, fmt.Errorf("no license found")
+		}()
+
+		if err == nil {
+			return license, nil
+		} else {
+			err = fmt.Errorf("api.github.com error: %s", err)
+
+			if missing {
+				return "", err
+			} else {
+				fmt.Fprintf(os.Stderr, "%s\n", err)
+				// proceed to fallback
+			}
+		}
+	}
+
+	return tryGetLicense(module, gi, gs, httpLicenseFiles)
+}
+
+func tryGetLicense(module string, gi GoImport, gs GoSource, files []string) (string, error) {
+	for _, license := range files {
 		// be a good citizen
 		time.Sleep(1 * time.Second)
 
@@ -350,7 +504,7 @@ func getLicense(module string, gi GoImport, gs GoSource) (string, error) {
 		}
 
 		for _, licenseUrl := range licenseUrls {
-			data, err := httpGet(licenseUrl)
+			data, err := httpGet(licenseUrl, nil)
 			if err != nil {
 				continue
 			}
@@ -367,7 +521,79 @@ func getLicense(module string, gi GoImport, gs GoSource) (string, error) {
 	return "", fmt.Errorf("no license found for module %q", module)
 }
 
+func lookup(module string) (gi GoImport, gs GoSource, err error) {
+	var data string
+	var ok bool
+
+	data, err = httpGet(fmt.Sprintf("https://%s?go-get=1", module), nil)
+	if err != nil {
+		// Attempt module root, for example:
+		// https://github.com/go-gl/glfw/v3.3/glfw -> https://github.com/go-gl/glfw
+		// https://github.com/russross/blackfriday/v2 -> https://github.com/russross/blackfriday
+		parts := strings.Split(module, "/")
+		if len(parts) > 3 {
+			moduleroot := strings.Join(parts[:3], "/")
+			data, err = httpGet(fmt.Sprintf("https://%s?go-get=1", moduleroot), nil)
+		}
+
+		if err != nil {
+			// Assume its a private repo
+			// TODO should check this against go env GOPRIVATE
+			// and should do that before attempting module root
+			gi = GoImport{
+				ImportPrefix: module,
+				Vcs:          "git",
+				RepoRoot:     fmt.Sprintf("https://%s.git", module),
+			}
+			return gi, gs, nil
+		}
+	}
+
+	gi, ok = parseGoImport(data)
+	if !ok {
+		err = fmt.Errorf("unrecognised import %q (no go-import meta tags)", module)
+		return
+	}
+
+	gs, _ = parseGoSource(data)
+
+	return gi, gs, nil
+}
+
+func parseNetrc() error {
+	usr, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("user lookup error: %v", err)
+	}
+
+	netrcPath := os.Getenv("NETRC")
+	if netrcPath == "" { netrcPath = filepath.Join(usr.HomeDir, ".netrc") }
+
+	n, err := netrc.Parse(filepath.Join(usr.HomeDir, ".netrc"))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) { return nil }
+		return fmt.Errorf(".netrc parse error: %v", err)
+	}
+
+	github := n.Machine("github.com")
+	if github != nil {
+		githubAuth = &BasicAuth{
+			Username: github.Get("login"),
+			Token:    github.Get("password"),
+		}
+	}
+
+	return nil
+}
+
 func main() {
+
+	parseNetrc()
+
+	if githubAuth == nil || !githubAuth.IsSet() {
+		fmt.Fprintf(os.Stderr, "warning: no credentials set for GitHub API\n -- gocomply may be slower and less accurate\n")
+	}
+
 	err := func() error {
 		var modules []string
 
@@ -397,32 +623,11 @@ func main() {
 			//    continue
 			// }
 
-			data, err := httpGet(fmt.Sprintf("https://%s?go-get=1", module))
+			gi, gs, err := lookup(module)
 			if err != nil {
-				// Attempt module root, for example:
-				// https://github.com/go-gl/glfw/v3.3/glfw -> https://github.com/go-gl/glfw
-				// https://github.com/russross/blackfriday/v2 -> https://github.com/russross/blackfriday
-				parts := strings.Split(module, "/")
-				if len(parts) > 3 {
-					moduleroot := strings.Join(parts[:3], "/")
-					data, err = httpGet(fmt.Sprintf("https://%s?go-get=1", moduleroot))
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "error looking up module %q: %v\n", module, err)
-						continue
-					}
-				} else {
-					fmt.Fprintf(os.Stderr, "error looking up module %q: %v\n", module, err)
-					continue
-				}
-			}
-
-			gi, ok := parseGoImport(data)
-			if !ok {
-				fmt.Fprintf(os.Stderr, "unrecognised import %q (no go-import meta tags)\n", module)
+				fmt.Fprintf(os.Stderr, "unable to lookup module %q: %v\n", module, err)
 				continue
 			}
-
-			gs, _ := parseGoSource(data)
 
 			license, err := getLicense(module, gi, gs)
 			if err != nil {
