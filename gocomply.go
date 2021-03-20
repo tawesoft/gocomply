@@ -130,7 +130,7 @@ type BasicAuth struct {
 	Username string
 	Token    string
 }
-var githubAuth *BasicAuth
+var githubAuth = &BasicAuth{}
 
 func (a BasicAuth) IsSet() bool {
 	return a.Username != "" && a.Token != ""
@@ -567,9 +567,11 @@ func parseNetrc() error {
 	}
 
 	netrcPath := os.Getenv("NETRC")
-	if netrcPath == "" { netrcPath = filepath.Join(usr.HomeDir, ".netrc") }
+	if netrcPath == "" {
+		netrcPath = filepath.Join(usr.HomeDir, ".netrc")
+	}
 
-	n, err := netrc.Parse(filepath.Join(usr.HomeDir, ".netrc"))
+	n, err := netrc.Parse(netrcPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) { return nil }
 		return fmt.Errorf(".netrc parse error: %v", err)
