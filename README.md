@@ -5,7 +5,7 @@
 Give open source Golang developers the credit they deserve, follow your legal
 obligations, and save time with `gocomply`.
 
-This little 500ish-line program scans the Go module in the current
+This little 600ish-line program scans the Go module in the current
 directory for all direct and indirect dependencies, and attempts to download 
 and write all of their license files to stdout. Progress or warnings are 
 written to stderr.
